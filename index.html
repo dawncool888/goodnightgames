@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Good Night Mini-Games</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,200..1000;1,200..1000&display=swap" rel="stylesheet">
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.1.1",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/",
+    "react/": "https://aistudiocdn.com/react@^19.1.1/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.19.0",
+    "path": "https://aistudiocdn.com/path@^0.12.7",
+    "vite": "https://aistudiocdn.com/vite@^7.2.2",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1"
+  }
+}
+</script>
+  <style>
+    :root {
+      --jelly-pink: #F472B6; /* A nice, soft pink */
+      --jelly-purple: #8B5CF6; /* A calm purple */
+      --night-sky-start: #0d1b2a;
+      --night-sky-end: #1b263b;
+      font-family: 'Nunito', sans-serif;
+    }
+    body {
+      -webkit-tap-highlight-color: transparent;
+    }
+    /* Custom Tailwind classes */
+    .bg-jelly-pink { background-color: var(--jelly-pink); }
+    .hover\\:bg-jelly-pink:hover { background-color: var(--jelly-pink); }
+    .text-jelly-pink { color: var(--jelly-pink); }
+    .bg-jelly-purple { background-color: var(--jelly-purple); }
+    .hover\\:bg-jelly-purple:hover { background-color: var(--jelly-purple); }
+    .from-night-sky-start\\/50 { --tw-gradient-from: var(--night-sky-start) 50%; --tw-gradient-to: rgba(13, 27, 42, 0); --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to); }
+
+    /* Keyframes for animations */
+    @keyframes fade-in {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    @keyframes fade-out {
+      from { opacity: 1; }
+      to { opacity: 0; }
+    }
+    @keyframes fade-out-slow {
+      from { opacity: 1; }
+      to { opacity: 0; pointer-events: none; }
+    }
+    .animate-fade-in { animation: fade-in 0.5s ease-out forwards; }
+    .animate-fade-out { animation: fade-out 0.5s ease-in forwards; }
+    .animate-fade-out-slow { animation: fade-out-slow 1s ease-in forwards; }
+
+
+    @keyframes wobble {
+      0%, 100% { transform: rotate(0deg) scale(1); }
+      25% { transform: rotate(-2deg) scale(1.02); }
+      75% { transform: rotate(2deg) scale(1.02); }
+    }
+    .animate-wobble { animation: wobble 1.5s ease-in-out infinite; }
+    
+    @keyframes twinkle {
+        0%, 100% { opacity: var(--start-opacity, 0.5); transform: scale(0.8); }
+        50% { opacity: 1; transform: scale(1); }
+    }
+    .animate-twinkle { animation: twinkle 4s ease-in-out infinite; }
+    .animate-twinkle.fast-twinkle {
+      animation-duration: 1s;
+    }
+
+    @keyframes halo {
+        from { transform: translate(-50%, -50%) scale(0); opacity: 0.7; }
+        to { transform: translate(-50%, -50%) scale(1.5); opacity: 0; }
+    }
+    .animate-halo { animation: halo 0.7s ease-out forwards; }
+
+    @keyframes mallet-strike {
+        0% { transform: rotate(-10deg); }
+        50% { transform: rotate(25deg); }
+        100% { transform: rotate(-10deg); }
+    }
+    .animate-mallet-strike { animation: mallet-strike 0.3s ease-in-out; }
+
+    @keyframes sound-wave {
+        from { transform: scale(0.8); opacity: 0.7; }
+        to { transform: scale(2); opacity: 0; }
+    }
+    .animate-sound-wave { animation: sound-wave 2s ease-out forwards; }
+    
+    @keyframes blessing-popup {
+        0% { transform: translateY(0) scale(0.8); opacity: 1; }
+        100% { transform: translateY(-30px) scale(1.2); opacity: 0; }
+    }
+    .animate-blessing-popup { animation: blessing-popup 1.5s ease-out forwards; }
+
+    @keyframes page-flip-left {
+        from { transform: rotateY(0deg); }
+        to { transform: rotateY(180deg); }
+    }
+    .animate-page-flip-left { animation: page-flip-left 0.6s ease-in-out forwards; }
+
+    @keyframes page-flip-right {
+        from { transform: rotateY(0deg); }
+        to { transform: rotateY(-180deg); }
+    }
+    .animate-page-flip-right { animation: page-flip-right 0.6s ease-in-out forwards; }
+    
+    @keyframes shoot {
+        0% { transform: translateY(0) translateX(0) scale(0); opacity: 1; }
+        70% { opacity: 1; }
+        100% { transform: translateY(100px) translateX(-100px) scale(1); opacity: 0; }
+    }
+    .shooting-star {
+      position: absolute;
+      width: 2px;
+      height: 2px;
+      background-color: white;
+      border-radius: 50%;
+      box-shadow: 0 0 6px 1px white;
+    }
+    .shooting-star::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 100px;
+      height: 1px;
+      background: linear-gradient(to left, transparent 0%, white 100%);
+    }
+
+    @keyframes fade-out-trail {
+      from {
+        opacity: 1;
+        transform: scale(1);
+      }
+      to {
+        opacity: 0;
+        transform: scale(0);
+      }
+    }
+    .trail-particle {
+      position: fixed;
+      pointer-events: none;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255,255,255,1) 0%, rgba(255,255,255,0) 60%);
+      animation: fade-out-trail 1s ease-out forwards;
+      z-index: 9999;
+    }
+
+    @keyframes pulse-glow {
+        0%, 100% {
+            box-shadow: 0 0 8px 2px var(--jelly-pink);
+            opacity: 0.7;
+            transform: scale(0.95);
+        }
+        50% {
+            box-shadow: 0 0 16px 4px var(--jelly-pink);
+            opacity: 1;
+            transform: scale(1.05);
+        }
+    }
+    .drifting-star {
+        animation: pulse-glow 3s ease-in-out infinite;
+    }
+
+    @keyframes fly-off {
+      0% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+      100% {
+        opacity: 0;
+        transform: translateY(-200px) scale(0.5);
+      }
+    }
+    .animate-fly-off {
+      animation: fly-off 2s ease-in forwards;
+    }
+
+    @keyframes loading-bar-fill {
+      from { transform: translateX(-100%); }
+      to { transform: translateX(0%); }
+    }
+    .animate-loading-bar-fill { animation: loading-bar-fill 3s cubic-bezier(0.65, 0, 0.35, 1) forwards; }
+
+    /* Decoration Animations */
+    @keyframes swim {
+      0% { transform: translate(0, 0) rotate(0deg); }
+      25% { transform: translate(5px, 2px) rotate(5deg); }
+      50% { transform: translate(0, -3px) rotate(0deg); }
+      75% { transform: translate(-5px, 2px) rotate(-5deg); }
+      100% { transform: translate(0, 0) rotate(0deg); }
+    }
+    .animate-swim { animation: swim 15s ease-in-out infinite; }
+
+    @keyframes pulse-light {
+      0%, 100% { filter: brightness(1) drop-shadow(0 0 5px var(--glow-color)); transform: scale(1); }
+      50% { filter: brightness(1.2) drop-shadow(0 0 10px var(--glow-color)); transform: scale(1.05); }
+    }
+    .animate-pulse-light { animation: pulse-light 5s ease-in-out infinite; }
+
+    @keyframes shimmer {
+      0%, 100% { opacity: 0.7; }
+      50% { opacity: 1; }
+    }
+    .animate-shimmer { animation: shimmer 6s ease-in-out infinite; }
+
+    @keyframes gentle-sway {
+        0%, 100% { transform: rotate(-2deg); }
+        50% { transform: rotate(2deg); }
+    }
+    .animate-gentle-sway { animation: gentle-sway 8s ease-in-out infinite; }
+
+    @keyframes slow-spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+    .animate-slow-spin { animation: slow-spin 20s linear infinite; }
+
+    /* Asteroid Scene Animations */
+    @keyframes pulse-opacity {
+        0%, 100% { opacity: 0.2; }
+        50% { opacity: 0.4; }
+    }
+    .animate-pulse-opacity { animation: pulse-opacity 10s ease-in-out infinite; }
+
+    @keyframes float-around {
+        0% { transform: translate(0, 0); }
+        25% { transform: translate(10px, 20px); }
+        50% { transform: translate(-15px, -5px); }
+        75% { transform: translate(5px, -15px); }
+        100% { transform: translate(0, 0); }
+    }
+    .animate-float-around { animation: float-around 25s ease-in-out infinite; }
+
+    @keyframes constellation-draw {
+      0% { stroke-dashoffset: 1; opacity: 0; }
+      30% { stroke-dashoffset: 0; opacity: 1; }
+      70% { stroke-dashoffset: 0; opacity: 1; }
+      100% { stroke-dashoffset: -1; opacity: 0; }
+    }
+    .animate-constellation-draw {
+      stroke-dasharray: 1;
+      stroke-dashoffset: 1;
+      animation: constellation-draw 8s ease-in-out forwards;
+    }
+    
+    /* New Chat Bubble Style */
+    .chat-bubble {
+        animation: fade-in 0.3s ease-out;
+    }
+    .chat-bubble::after {
+        content: '';
+        position: absolute;
+        top: 100%;
+        left: 50%;
+        margin-left: -5px;
+        border-width: 5px;
+        border-style: solid;
+        border-color: rgba(0,0,0,0.7) transparent transparent transparent;
+    }
+
+    /* Fly-to-inventory animation */
+    @keyframes fly-to-inventory {
+        from {
+            opacity: 1;
+            transform: scale(1) translate(0, 0);
+        }
+        to {
+            opacity: 0;
+            transform: scale(0.3) translate(200px, -50px);
+        }
+    }
+    .animate-fly-to-inventory {
+        animation: fly-to-inventory 0.6s ease-in forwards;
+    }
+
+    @keyframes point-right {
+        0%, 100% { transform: translateX(0); }
+        50% { transform: translateX(10px); }
+    }
+
+    @keyframes fall {
+        0% {
+            transform: translateY(-10vh) translateX(0vw) rotate(0deg);
+            opacity: 1;
+        }
+        25% {
+            transform: translateX(-5vw) rotate(90deg);
+        }
+        50% {
+            transform: translateX(5vw) rotate(-90deg);
+        }
+        75% {
+            transform: translateX(-2vw) rotate(45deg);
+        }
+        100% {
+            transform: translateY(110vh) translateX(0vw) rotate(720deg);
+            opacity: 0;
+        }
+    }
+
+
+    /* Custom scrollbar for better aesthetics */
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;  /* IE and Edge */
+      scrollbar-width: none;  /* Firefox */
+    }
+    
+  </style>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>

@@ -7,6 +7,15 @@ export type Language = 'zh' | 'en';
 export type TranslationKey = keyof typeof translations.zh;
 export type ShopCategory = 'game' | 'skin' | 'theme' | 'decoration';
 export type AdPlacement = 'extra_plays' | 'extra_wishes' | 'coin_reward';
+// Add the missing types for ad service results and rewards.
+export interface AdReward {
+    type: 'coins' | 'plays' | 'wishes';
+    amount: number;
+}
+
+export type AdResult =
+    | { success: true; reward: AdReward }
+    | { success: false; error?: string };
 export type DecorationInventory = Record<string, number>;
 
 
@@ -150,4 +159,5 @@ export interface User {
     name: string;
     isGuest: boolean;
     avatar?: string; // Optional URL for user avatar
+    isOffline?: boolean;
 }

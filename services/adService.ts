@@ -1,72 +1,104 @@
-// services/adService.ts
-import { AdPlacement, AdResult, AdReward } from '../types';
+import type { AdPlacement, AdResult, AdReward } from '../types';
+import { isMockEnabled, withTimeout } from './runtimeMode';
 
+// Fixed game rewards; these are not ad revenue or provider payout values.
+const REWARDS: Record<AdPlacement, Readonly<AdReward>> = {
+  extra_plays: { type: 'plays', amount: 3 },
+  extra_wishes: { type: 'wishes', amount: 1 },
+  coin_reward: { type: 'coins', amount: 35 },
+};
+const AD_UNIT_IDS: Record<AdPlacement, string> = {
+  extra_plays: 'p7shgce3rk',
+  extra_wishes: 'p7jgsr8cj8',
+  coin_reward: 'f8jmrtrxqv',
+};
+const LEDGER_KEY = 'goodnightgames.claimed-ad-transactions.v2';
+const AD_TIMEOUT_MS = 120_000;
+let inFlight = false;
+const issuedRewards = new WeakSet<object>();
 
-/**
- * 检查指定类型的广告位是否还可以展示广告。
- * 
- * [待办] 您需要在此处实现具体的逻辑。
- * 1. 这个函数已经被App.tsx中的状态管理所替代，但为您保留结构以备未来对接后端。
- * 
- * @param placementId 广告位ID ('extra_plays', 'extra_wishes', 'coin_reward')
- * @returns Promise<boolean> - 返回一个Promise，解析为布尔值，表示是否可以展示广告。
- */
-export async function canShowAd(placementId: AdPlacement): Promise<boolean> {
-    console.log(`检查广告位 '${placementId}' 是否可展示...`);
-    // 当前为模拟逻辑，默认总是可以展示
-    return Promise.resolve(true);
+function isPlacement(value: unknown): value is AdPlacement {
+  return typeof value === 'string' && Object.hasOwn(REWARDS, value);
 }
 
-/**
- * 根据广告位ID，向用户展示一个激励视频广告。
- * 
- * [待办] 您需要在此处实现与您选择的广告SDK的对接逻辑。
- * 
- * @param placementId 广告位ID
- * @returns Promise<AdResult> - 返回一个Promise，解析为一个包含播放结果和奖励信息的对象。
- */
+function nativeBridge() {
+  if (typeof window === 'undefined') return undefined;
+  const bridge = window.harmonyBridge;
+  return bridge?.adProtocolVersion === 2 && typeof bridge.showRewardedAd === 'function'
+    ? bridge : undefined;
+}
+
+function validId(value: unknown): value is string {
+  return typeof value === 'string' && value.trim() === value
+    && value.length > 0 && value.length <= 256 && !value.startsWith('mock:');
+}
+
+// Read and persist before returning success. Corrupt/unavailable storage fails closed.
+// Do not evict IDs: eviction would allow old callbacks to be replayed after a reload.
+function claimTransaction(transactionId: string): boolean {
+  const storage = window.localStorage;
+  const raw = storage.getItem(LEDGER_KEY);
+  const ids: unknown = raw === null ? [] : JSON.parse(raw);
+  if (!Array.isArray(ids) || !ids.every(validId)) throw new Error('INVALID_LEDGER');
+  if (ids.includes(transactionId)) return false;
+  storage.setItem(LEDGER_KEY, JSON.stringify([...ids, transactionId]));
+  return true;
+}
+
+/** Capability check only; inventory, consent and SDK errors still fail at show time. */
+export async function canShowAd(placementId: AdPlacement): Promise<boolean> {
+  return isPlacement(placementId) && !inFlight && (isMockEnabled() || Boolean(nativeBridge()));
+}
+
+/** Native v2 must resolve only from its validated SDK reward-earned callback. */
 export async function showRewardedAd(placementId: AdPlacement): Promise<AdResult> {
-  console.log(`📢 尝试展示原生广告: '${placementId}'...`);
-  
+  if (!isPlacement(placementId)) return { success: false, error: 'INVALID_PLACEMENT' };
+  if (inFlight) return { success: false, error: 'AD_IN_PROGRESS' };
+  inFlight = true;
   try {
-    // ✅ 优先调用原生bridge - 删除所有网络检测！
-    if (window.harmonyBridge && typeof window.harmonyBridge.showRewardedAd === 'function') {
-      console.log("✅ 检测到 harmonyBridge，调用原生广告");
-      
-      const result = await window.harmonyBridge.showRewardedAd(placementId);
-      const parsedResult = typeof result === 'string' ? JSON.parse(result) : result;
-      
-      if (parsedResult && parsedResult.success && parsedResult.rewarded && parsedResult.reward) {
-        console.log("✅ 广告观看成功，获得奖励:", parsedResult);
-        return {
-          success: true,
-          reward: {
-            type: parsedResult.reward.type || parsedResult.rewardType || 'coins',
-            amount: parsedResult.reward.amount || parsedResult.rewardAmount || 0
-          }
-        };
-      } else {
-        console.warn("⚠️ 广告观看失败或未完成:", parsedResult?.error || '未知错误');
-        return { success: false, error: parsedResult?.error || '广告展示失败' };
-      }
+    const requestId = globalThis.crypto.randomUUID();
+    const expected = REWARDS[placementId];
+    let result: AdResult;
+    if (isMockEnabled()) {
+      result = {
+        success: true, source: 'mock', requestId, transactionId: `mock:${requestId}`,
+        placementId, reward: { ...expected },
+      };
     } else {
-      // ⚠️ 降级：bridge不可用时使用mock
-      console.warn("⚠️ HarmonyOS bridge 不可用，使用模拟广告");
-      return new Promise((resolve) => {
-        setTimeout(() => {
-          const rewardMap: Record<string, AdReward> = {
-            'coin_reward': { type: 'coins', amount: 35 },
-            'extra_plays': { type: 'plays', amount: 3 },
-            'extra_wishes': { type: 'wishes', amount: 1 }
-          };
-          const reward = rewardMap[placementId] || rewardMap['coin_reward'];
-          console.log("📢 广告播放成功! (模拟)");
-          resolve({ success: true, reward: reward });
-        }, 1000);
-      });
+      const bridge = nativeBridge();
+      if (!bridge) return { success: false, error: 'BRIDGE_UNAVAILABLE' };
+      const raw = await withTimeout(() => bridge.showRewardedAd(placementId, requestId), AD_TIMEOUT_MS);
+      const response: unknown = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (!response || typeof response !== 'object') return { success: false, error: 'INVALID_CALLBACK' };
+      const receipt = response as Partial<HarmonyRewardedAdReceipt>;
+      if (receipt.success !== true || receipt.rewarded !== true || receipt.verified !== true
+        || receipt.source !== 'native' || receipt.event !== 'reward_earned'
+        || receipt.requestId !== requestId || receipt.placementId !== placementId
+        || receipt.adUnitId !== AD_UNIT_IDS[placementId] || !validId(receipt.transactionId)
+        || receipt.reward?.type !== expected.type || receipt.reward.amount !== expected.amount) {
+        return { success: false, error: 'INVALID_CALLBACK' };
+      }
+      if (!claimTransaction(receipt.transactionId)) return { success: false, error: 'DUPLICATE_REWARD' };
+      result = {
+        success: true, source: 'native', requestId, transactionId: receipt.transactionId,
+        placementId, reward: { ...expected },
+      };
     }
+    Object.freeze(result.reward);
+    Object.freeze(result);
+    issuedRewards.add(result);
+    return result;
   } catch (error) {
-    console.error("❌ HarmonyOS 广告异常:", error);
-    return { success: false, error: error instanceof Error ? error.message : '广告展示失败' };
+    return { success: false, error: error instanceof Error && error.message === 'TIMEOUT'
+      ? 'AD_TIMEOUT' : 'AD_FAILED' };
+  } finally {
+    inFlight = false;
   }
+}
+
+/** The UI must consume before applying state updates; each issued result is usable once. */
+export function consumeAdReward(result: AdResult): boolean {
+  if (!result.success || !issuedRewards.has(result)) return false;
+  issuedRewards.delete(result);
+  return result.source === 'native' || (result.source === 'mock' && isMockEnabled());
 }

@@ -1,10 +1,25 @@
-import type { AdPlacement } from './types';
+/// <reference types="vite/client" />
+import type { AdPlacement, AdReward } from './types';
 
 declare global {
+  // This is a NEW required contract, not evidence of an implemented native SDK.
+  interface HarmonyRewardedAdReceipt {
+    success: boolean;
+    rewarded: boolean;
+    verified: boolean;
+    source: 'native';
+    event: 'reward_earned';
+    requestId: string;
+    placementId: AdPlacement;
+    adUnitId: string;
+    transactionId: string;
+    reward: AdReward;
+  }
   interface Window {
     harmonyBridge?: {
-      login: () => Promise<string | any>; // Returns user data JSON string or object
-      showRewardedAd: (placementId: AdPlacement) => Promise<string | any>; // Returns AdResult JSON string or object
+      adProtocolVersion?: 2;
+      login: () => Promise<unknown>;
+      showRewardedAd: (placementId: AdPlacement, requestId: string) => Promise<unknown>;
     };
   }
 }

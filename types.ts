@@ -14,7 +14,7 @@ export interface AdReward {
 }
 
 export type AdResult =
-    | { success: true; reward: AdReward }
+    | { success: true; source: 'native' | 'mock'; requestId: string; transactionId: string; placementId: AdPlacement; reward: Readonly<AdReward> }
     | { success: false; error?: string };
 export type DecorationInventory = Record<string, number>;
 

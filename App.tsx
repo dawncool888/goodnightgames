@@ -23,7 +23,8 @@ import LoginBonusModal from './components/LoginBonusModal';
 import type { Screen, GameTheme, GameState, Settings, GameStats, DriftingStar, ShopItem, SentWish, ReceivedWish, TranslationKey, DailyStats, AdPlacement, PlacedDecoration, User } from './types';
 import { SHOP_ITEMS, ALL_STICKERS, useTranslations, bottleMessages, translations } from './constants';
 import { generateEchoForWish } from './services/geminiService';
-import { showRewardedAd } from './services/adService';
+import { consumeAdReward, showRewardedAd } from './services/adService';
+import { isMockEnabled, runtimeStorageKey } from './services/runtimeMode';
 
 // Import custom hook
 import { useLocalStorage } from './hooks/useLocalStorage';
@@ -53,11 +54,13 @@ const initialDailyStats: DailyStats = {
 function App() {
     // --- STATE MANAGEMENT ---
     const [isLoading, setIsLoading] = useState(true);
+    const adInFlight = useRef(false);
+    const [adStatus, setAdStatus] = useState('');
 
     const [screen, setScreen] = useState<Screen>('themeSelector');
     const [selectedTheme, setSelectedTheme] = useState<GameTheme | null>(null);
     
-    const [settings, setSettings] = useLocalStorage<Settings>('settings', {
+    const [settings, setSettings] = useLocalStorage<Settings>(runtimeStorageKey('settings'), {
         language: 'zh',
         music: true,
         sfx: true,
@@ -67,23 +70,23 @@ function App() {
         decorationInventory: {},
     });
     
-    const [history, setHistory] = useLocalStorage<GameState[]>('gameHistory', []);
-    const [unlockedStickers, setUnlockedStickers] = useLocalStorage<string[]>('unlockedStickers', ['sheep-1']);
+    const [history, setHistory] = useLocalStorage<GameState[]>(runtimeStorageKey('gameHistory'), []);
+    const [unlockedStickers, setUnlockedStickers] = useLocalStorage<string[]>(runtimeStorageKey('unlockedStickers'), ['sheep-1']);
     
     // --- ADVERTISEMENT & DAILY LIMITS STATE ---
-    const [dailyStats, setDailyStats] = useLocalStorage<DailyStats>('dailyStats', initialDailyStats);
+    const [dailyStats, setDailyStats] = useLocalStorage<DailyStats>(runtimeStorageKey('dailyStats'), initialDailyStats);
     const [adPrompt, setAdPrompt] = useState<{ isOpen: boolean; type: AdPlacement | null; isAnimatingOut: boolean; }>({ isOpen: false, type: null, isAnimatingOut: false });
     const [adLimitModal, setAdLimitModal] = useState<{ isOpen: boolean; isAnimatingOut: boolean }>({ isOpen: false, isAnimatingOut: false });
 
 
     // --- WISH & CURRENCY STATE ---
-    const [wishCoins, setWishCoins] = useLocalStorage<number>('wishCoins', 50);
-    const [unlockedItems, setUnlockedItems] = useLocalStorage<string[]>('unlockedItems', 
+    const [wishCoins, setWishCoins] = useLocalStorage<number>(runtimeStorageKey('wishCoins'), 50);
+    const [unlockedItems, setUnlockedItems] = useLocalStorage<string[]>(runtimeStorageKey('unlockedItems'), 
         SHOP_ITEMS.filter(item => item.cost <= 0).map(item => item.id)
     );
-    const [sentWishes, setSentWishes] = useLocalStorage<SentWish[]>('sentWishes', []);
-    const [receivedWishes, setReceivedWishes] = useLocalStorage<ReceivedWish[]>('receivedWishes', []);
-    const [placedDecorations, setPlacedDecorations] = useLocalStorage<PlacedDecoration[]>('placedDecorations', []);
+    const [sentWishes, setSentWishes] = useLocalStorage<SentWish[]>(runtimeStorageKey('sentWishes'), []);
+    const [receivedWishes, setReceivedWishes] = useLocalStorage<ReceivedWish[]>(runtimeStorageKey('receivedWishes'), []);
+    const [placedDecorations, setPlacedDecorations] = useLocalStorage<PlacedDecoration[]>(runtimeStorageKey('placedDecorations'), []);
 
 
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -98,7 +101,7 @@ function App() {
         setWishCoins(c => c + 100);
         setIsLoginBonusModalOpen(true);
     }, [setWishCoins]);
-    const { user, login } = useAuth(handleFirstLogin);
+    const { user, login, loginFailed } = useAuth(handleFirstLogin);
     
     // --- INTERACTIVE BACKGROUND STATE & REFS ---
     const [stars, setStars] = useState<{ id: number; x: number; y: number; size: number; delay: string; }[]>([]);
@@ -157,7 +160,7 @@ function App() {
 
     // Initial Decoration Gift Effect
     useEffect(() => {
-        const hasReceivedGift = localStorage.getItem('hasReceivedInitialGift');
+        const hasReceivedGift = localStorage.getItem(runtimeStorageKey('hasReceivedInitialGift'));
         if (!hasReceivedGift) {
             setSettings(s => {
                 const newInventory = { ...s.decorationInventory };
@@ -166,7 +169,7 @@ function App() {
                 }
                 return { ...s, decorationInventory: newInventory };
             });
-            localStorage.setItem('hasReceivedInitialGift', 'true');
+            localStorage.setItem(runtimeStorageKey('hasReceivedInitialGift'), 'true');
         }
     }, [setSettings]);
 
@@ -174,7 +177,7 @@ function App() {
      // Data migration for old wish formats
     useEffect(() => {
         const migrateWishes = () => {
-            const oldSentWishes = localStorage.getItem('sentWishes');
+            const oldSentWishes = localStorage.getItem(runtimeStorageKey('sentWishes'));
             if (oldSentWishes && oldSentWishes.startsWith('[')) {
                 try {
                     const parsed = JSON.parse(oldSentWishes);
@@ -191,7 +194,7 @@ function App() {
                 } catch (e) { console.error("Failed to migrate sent wishes", e); }
             }
 
-            const oldReceivedWishes = localStorage.getItem('receivedWishes');
+            const oldReceivedWishes = localStorage.getItem(runtimeStorageKey('receivedWishes'));
             if (oldReceivedWishes && oldReceivedWishes.startsWith('[')) {
                  try {
                     const parsed = JSON.parse(oldReceivedWishes);
@@ -511,32 +514,31 @@ function App() {
     };
     
     const handleConfirmAd = async () => {
-        if (!adPrompt.type) return;
+        if (!adPrompt.type || adInFlight.current || adPrompt.isAnimatingOut) return;
         const placement = adPrompt.type;
+        if (dailyStats.adsWatched[placement] >= 3) return;
+        adInFlight.current = true;
+        setAdStatus('');
         closeAdPrompt();
-
-        const result = await showRewardedAd(placement);
-
-        if (result.success && result.reward) {
-            if (result.reward.type === 'plays') {
-                setDailyStats(d => ({
-                    ...d,
-                    plays: d.plays - result.reward.amount, // This effectively gives them more plays
-                    adsWatched: { ...d.adsWatched, [placement]: d.adsWatched[placement] + 1 }
-                }));
-            } else if (result.reward.type === 'wishes') {
-                setDailyStats(d => ({
-                    ...d,
-                    wishesSent: d.wishesSent - result.reward.amount,
-                    adsWatched: { ...d.adsWatched, [placement]: d.adsWatched[placement] + 1 }
-                }));
-            } else if (result.reward.type === 'coins') {
-                setWishCoins(c => c + result.reward.amount);
-                 setDailyStats(d => ({
-                    ...d,
-                    adsWatched: { ...d.adsWatched, [placement]: d.adsWatched[placement] + 1 }
-                }));
+        try {
+            const result = await showRewardedAd(placement);
+            if (result.success && result.placementId === placement && consumeAdReward(result)) {
+                if (result.reward.type === 'plays') {
+                    setDailyStats(d => ({ ...d, plays: d.plays - result.reward.amount, adsWatched: { ...d.adsWatched, [placement]: d.adsWatched[placement] + 1 } }));
+                } else if (result.reward.type === 'wishes') {
+                    setDailyStats(d => ({ ...d, wishesSent: d.wishesSent - result.reward.amount, adsWatched: { ...d.adsWatched, [placement]: d.adsWatched[placement] + 1 } }));
+                } else {
+                    setWishCoins(c => c + result.reward.amount);
+                    setDailyStats(d => ({ ...d, adsWatched: { ...d.adsWatched, [placement]: d.adsWatched[placement] + 1 } }));
+                }
+                if (result.source === 'mock') setAdStatus(settings.language === 'zh' ? '模拟奖励（测试数据）' : 'Mock reward (test data)');
+            } else {
+                setAdStatus(settings.language === 'zh' ? '广告未完成或验证失败，未发放奖励。请稍后重试。' : 'Ad incomplete or unverified. No reward granted. Please retry later.');
             }
+        } catch {
+            setAdStatus(settings.language === 'zh' ? '广告失败，未发放奖励。' : 'Ad failed. No reward granted.');
+        } finally {
+            adInFlight.current = false;
         }
     };
 
@@ -583,6 +585,13 @@ function App() {
 
     return (
         <main className="w-screen h-screen overflow-hidden text-white font-sans relative flex items-center justify-center transition-colors duration-500" style={mainBgStyle}>
+            {(adStatus || loginFailed || isMockEnabled()) && (
+                <p role="status" className="fixed bottom-24 z-50 rounded bg-black/80 px-4 py-2 text-sm">
+                    {adStatus || (loginFailed
+                        ? (settings.language === 'zh' ? '登录失败，请稍后重试。' : 'Login failed. Please retry later.')
+                        : (settings.language === 'zh' ? '开发模拟模式：奖励和数据仅用于测试' : 'Development Mock mode: test rewards and data'))}
+                </p>
+            )}
             <LoadingScreen isLoading={isLoading} settings={settings} />
 
             {trail.map(p => (
